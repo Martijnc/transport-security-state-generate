@@ -18,7 +18,7 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -40,7 +40,7 @@ type pin struct {
 	name         string
 	cert         *x509.Certificate
 	spkiHash     []byte
-	spkiHashFunc string // i.e. "sha1"
+	spkiHashFunc string // i.e. "sha256"
 }
 
 // preloaded represents the information contained in the
@@ -149,6 +149,7 @@ var newLine = []byte("\n")
 var startOfCert = []byte("-----BEGIN CERTIFICATE")
 var endOfCert = []byte("-----END CERTIFICATE")
 var startOfSHA1 = []byte("sha1/")
+var startOfSHA256 = []byte("sha256/")
 
 // nameRegexp matches valid pin names: an uppercase letter followed by zero or
 // more letters and digits.
@@ -230,16 +231,18 @@ func parseCertsFile(inFile io.Reader) ([]pin, error) {
 		case POSTNAME:
 			switch {
 			case bytes.HasPrefix(line, startOfSHA1):
-				hash, err := base64.StdEncoding.DecodeString(string(line[len(startOfSHA1):]))
+				return nil, fmt.Errorf("SHA1 hash found on line %d. Static SHA-1 pins are no longer supported.", lineNo)
+			case bytes.HasPrefix(line, startOfSHA256):
+				hash, err := base64.StdEncoding.DecodeString(string(line[len(startOfSHA256):]))
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode hash on line %d: %s\n", lineNo, err)
 				}
-				if len(hash) != 20 {
-					return nil, fmt.Errorf("bad SHA1 hash length on line %d: %s\n", lineNo, err)
+				if len(hash) != 32 {
+					return nil, fmt.Errorf("bad SHA256 hash length on line %d: %s\n", lineNo, err)
 				}
 				pins = append(pins, pin{
 					name:         name,
-					spkiHashFunc: "sha1",
+					spkiHashFunc: "sha256",
 					spkiHash:     hash,
 				})
 				state = PRENAME
@@ -274,12 +277,12 @@ func parseCertsFile(inFile io.Reader) ([]pin, error) {
 			if err := matchNames(certName, name); err != nil {
 				return nil, fmt.Errorf("name failure on line %d: %s\n%s -> %s\n", lineNo, err, certName, name)
 			}
-			h := sha1.New()
+			h := sha256.New()
 			h.Write(cert.RawSubjectPublicKeyInfo)
 			pins = append(pins, pin{
 				name:         name,
 				cert:         cert,
-				spkiHashFunc: "sha1",
+				spkiHashFunc: "sha256",
 				spkiHash:     h.Sum(nil),
 			})
 			state = PRENAME
@@ -482,7 +485,7 @@ func writeDomainIds(out *bufio.Writer, domainIds []string) {
 
 func writeCertsOutput(out *bufio.Writer, pins []pin) {
 	out.WriteString(`// These are SubjectPublicKeyInfo hashes for public key pinning. The
-// hashes are SHA1 digests.
+// hashes are SHA256 digests.
 
 `)
 
